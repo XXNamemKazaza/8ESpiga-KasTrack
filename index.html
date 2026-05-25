@@ -29,7 +29,7 @@
 }
 * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
 html,body { height:100%; background:var(--bg); color:var(--text); font-family:'Plus Jakarta Sans',sans-serif; overflow:hidden; }
-#app { height:100dvh; height:100%; display:flex; flex-direction:column; max-width:480px; margin:0 auto; position:relative; overflow:hidden; }
+#app { height:100vh; display:flex; flex-direction:column; max-width:480px; margin:0 auto; position:relative; overflow:hidden; }
 
 /* ===== SCREENS ===== */
 .screen { display:none; flex-direction:column; height:100%; overflow:hidden; }
@@ -44,7 +44,7 @@ html,body { height:100%; background:var(--bg); color:var(--text); font-family:'P
 .btn-icon { width:36px; height:36px; border-radius:10px; background:var(--card); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text2); font-size:16px; }
 
 /* ===== BOTTOM NAV ===== */
-.bottom-nav { display:flex; background:var(--bg2); border-top:1px solid var(--border); padding:8px 0 calc(20px + env(safe-area-inset-bottom)); position:sticky; bottom:0; z-index:100; }
+.bottom-nav { display:flex; background:var(--bg2); border-top:1px solid var(--border); padding:8px 0 20px; position:sticky; bottom:0; z-index:100; }
 .nav-item { flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; padding:4px 0; opacity:.5; transition:.2s; }
 .nav-item.active { opacity:1; }
 .nav-item .nav-icon { font-size:20px; }
@@ -206,6 +206,9 @@ select.form-input { appearance:none; }
 .chart-wrap { position:relative; height:160px; }
 
 /* ===== UTIL ===== */
+.ptr-container { position: absolute; top: -40px; left: 0; right: 0; height: 40px; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 12px; color: var(--text2); font-weight: 600; transition: transform 0.2s ease; z-index: 50; }
+.ptr-icon { transition: transform 0.2s ease; font-size: 14px; }
+.ptr-spinner { width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--text); border-radius: 50%; animation: spin .6s linear infinite; display: none; }
 .mt-8 { margin-top:8px; }
 .mt-12 { margin-top:12px; }
 .mt-16 { margin-top:16px; }
@@ -232,6 +235,13 @@ select.form-input { appearance:none; }
 </div>
 
 <div id="app">
+
+<!-- =========== PULL TO REFRESH =========== -->
+<div class="ptr-container" id="ptr-container">
+  <div class="ptr-icon" id="ptr-icon">↓</div>
+  <div class="ptr-spinner" id="ptr-spinner"></div>
+  <span id="ptr-text">Tarik untuk memuat ulang</span>
+</div>
 
 <!-- =========== AUTH SCREEN =========== -->
 <div class="screen active" id="screen-auth" style="overflow-y:auto;">
@@ -1333,12 +1343,32 @@ function loadProfile() {
 async function saveInitialBalance() {
   const val = parseInt(document.getElementById('prof-initial-input').value) || 0;
   if (!classProfile) return;
-  const { error } = await db.from('class_profiles').update({ initial_balance: val }).eq('user_id', currentUser.id);
-  if (error) return showToast('Gagal: '+error.message,'error');
+
+  let error;
+  // Cek apakah data profil kelas sudah benar-benar ada di DB (punya ID asli)
+  if (classProfile.id) {
+    // Jika ada, kita update berdasarkan ID barisnya
+    const { error: err } = await db.from('class_profiles').update({ initial_balance: val }).eq('id', classProfile.id);
+    error = err;
+  } else {
+    // Jika belum ada, kita buatkan baris baru (insert)
+    const { data: newCp, error: err } = await db.from('class_profiles').insert([{ 
+      user_id: currentUser.id, 
+      class_name: classProfile.class_name || 'Kelas 8E',
+      initial_balance: val,
+      target_balance: classProfile.target_balance || 0
+    }]).select().single();
+    error = err;
+    if (!error && newCp) classProfile = newCp; // Daftarkan objek baru dari DB
+  }
+
+  if (error) return showToast('Gagal: ' + error.message, 'error');
+
   classProfile.initial_balance = val;
   document.getElementById('prof-initial-balance').textContent = fmt(val);
   document.getElementById('prof-initial-input').value = '';
   showToast('✅ Saldo awal disimpan!', 'success');
+  if (typeof loadDashboard === 'function') loadDashboard(); // Segarkan tampilan dashboard
 }
 
 async function saveEditName() {
@@ -1376,21 +1406,57 @@ async function saveEditPass() {
 
 async function saveEditClass() {
   const v = document.getElementById('edit-class-val').value.trim();
-  if (!v) return showToast('Nama kelas tidak boleh kosong!','error');
-  await db.from('class_profiles').update({class_name:v}).eq('user_id',currentUser.id);
+  if (!v) return showToast('Nama kelas tidak boleh kosong!', 'error');
+  
+  let error;
+  if (classProfile.id) {
+    const { error: err } = await db.from('class_profiles').update({ class_name: v }).eq('id', classProfile.id);
+    error = err;
+  } else {
+    const { data: newCp, error: err } = await db.from('class_profiles').insert([{ 
+      user_id: currentUser.id, 
+      class_name: v,
+      initial_balance: classProfile.initial_balance || 0,
+      target_balance: classProfile.target_balance || 0
+    }]).select().single();
+    error = err;
+    if (!error && newCp) classProfile = newCp;
+  }
+
+  if (error) return showToast('Gagal: ' + error.message, 'error');
+
   classProfile.class_name = v;
   closeModal('modal-edit-class');
   loadProfile();
-  showToast('✅ Nama kelas diperbarui!','success');
+  showToast('✅ Nama kelas diperbarui!', 'success');
+  if (typeof loadDashboard === 'function') loadDashboard();
 }
 
 async function saveEditTarget() {
   const v = parseInt(document.getElementById('edit-target-val').value) || 0;
-  await db.from('class_profiles').update({target_balance:v}).eq('user_id',currentUser.id);
+  
+  let error;
+  if (classProfile.id) {
+    const { error: err } = await db.from('class_profiles').update({ target_balance: v }).eq('id', classProfile.id);
+    error = err;
+  } else {
+    const { data: newCp, error: err } = await db.from('class_profiles').insert([{ 
+      user_id: currentUser.id, 
+      class_name: classProfile.class_name || 'Kelas 8E',
+      initial_balance: classProfile.initial_balance || 0,
+      target_balance: v
+    }]).select().single();
+    error = err;
+    if (!error && newCp) classProfile = newCp;
+  }
+
+  if (error) return showToast('Gagal: ' + error.message, 'error');
+
   classProfile.target_balance = v;
   closeModal('modal-edit-target');
   loadProfile();
-  showToast('✅ Target kas diperbarui!','success');
+  showToast('✅ Target kas diperbarui!', 'success');
+  if (typeof loadDashboard === 'function') loadDashboard();
 }
 
 async function saveNewClass() {
@@ -1528,6 +1594,83 @@ async function init() {
 }
 
 window.addEventListener('load', init);
+// ============================================================
+// PULL TO REFRESH LOGIC
+// ============================================================
+const appContainer = document.getElementById('app');
+const ptrContainer = document.getElementById('ptr-container');
+const ptrIcon = document.getElementById('ptr-icon');
+const ptrSpinner = document.getElementById('ptr-spinner');
+const ptrText = document.getElementById('ptr-text');
+
+let startY = 0;
+let isPulling = false;
+let isRefreshing = false;
+
+appContainer.addEventListener('touchstart', (e) => {
+  // Hanya aktif kalau kita sedang berada di paling atas halaman
+  const scrollArea = e.target.closest('.scroll-area');
+  if (scrollArea && scrollArea.scrollTop > 0) return;
+
+  startY = e.touches[0].clientY;
+  isPulling = true;
+}, { passive: true });
+
+appContainer.addEventListener('touchmove', (e) => {
+  if (!isPulling || isRefreshing) return;
+  
+  const scrollArea = e.target.closest('.scroll-area');
+  if (scrollArea && scrollArea.scrollTop > 0) {
+    isPulling = false;
+    return;
+  }
+
+  const currentY = e.touches[0].clientY;
+  const pullDistance = currentY - startY;
+
+  // Jika ditarik ke bawah
+  if (pullDistance > 0 && pullDistance < 150) {
+    const translateY = pullDistance * 0.4; // Memberikan efek perlawanan/berat
+    ptrContainer.style.transform = `translateY(${translateY}px)`;
+    ptrContainer.style.transition = 'none'; // Matikan transisi saat ditarik manual
+    
+    // Ubah teks & ikon kalau tarikan sudah cukup jauh
+    if (translateY > 45) {
+      ptrIcon.style.transform = 'rotate(180deg)';
+      ptrText.textContent = 'Lepas untuk memuat ulang';
+    } else {
+      ptrIcon.style.transform = 'rotate(0deg)';
+      ptrText.textContent = 'Tarik untuk memuat ulang';
+    }
+  }
+}, { passive: true });
+
+appContainer.addEventListener('touchend', (e) => {
+  if (!isPulling || isRefreshing) return;
+  isPulling = false;
+  ptrContainer.style.transition = 'transform 0.2s ease';
+  
+  const currentY = e.changedTouches[0].clientY;
+  const pullDistance = currentY - startY;
+  const translateY = pullDistance * 0.4;
+
+  // Jika ditarik melewati batas 45px, lakukan refresh
+  if (translateY > 45) {
+    isRefreshing = true;
+    ptrContainer.style.transform = `translateY(45px)`;
+    ptrIcon.style.display = 'none';
+    ptrSpinner.style.display = 'block';
+    ptrText.textContent = 'Memuat data...';
+    
+    // Muat ulang halaman untuk mengambil data terbaru dari database
+    setTimeout(() => {
+      window.location.reload();
+    }, 600);
+  } else {
+    // Jika tarikan kurang jauh, kembalikan ke atas
+    ptrContainer.style.transform = `translateY(0)`;
+  }
+});
 </script>
 
 <!-- ===== SUPABASE TABLES REFERENCE (COMMENT) =====
