@@ -29,7 +29,7 @@
 }
 * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
 html,body { height:100%; background:var(--bg); color:var(--text); font-family:'Plus Jakarta Sans',sans-serif; overflow:hidden; }
-#app { height:100vh; display:flex; flex-direction:column; max-width:480px; margin:0 auto; position:relative; overflow:hidden; }
+#app { height:100dvh; height:100%; display:flex; flex-direction:column; max-width:480px; margin:0 auto; position:relative; overflow:hidden; }
 
 /* ===== SCREENS ===== */
 .screen { display:none; flex-direction:column; height:100%; overflow:hidden; }
@@ -44,7 +44,7 @@ html,body { height:100%; background:var(--bg); color:var(--text); font-family:'P
 .btn-icon { width:36px; height:36px; border-radius:10px; background:var(--card); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text2); font-size:16px; }
 
 /* ===== BOTTOM NAV ===== */
-.bottom-nav { display:flex; background:var(--bg2); border-top:1px solid var(--border); padding:8px 0 20px; position:sticky; bottom:0; z-index:100; }
+.bottom-nav { display:flex; background:var(--bg2); border-top:1px solid var(--border); padding:8px 0 calc(20px + env(safe-area-inset-bottom)); position:sticky; bottom:0; z-index:100; }
 .nav-item { flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; padding:4px 0; opacity:.5; transition:.2s; }
 .nav-item.active { opacity:1; }
 .nav-item .nav-icon { font-size:20px; }
